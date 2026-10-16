@@ -1,0 +1,44 @@
+{
+  "name": "@sandsoftwaresolutions/mini-router",
+  "version": "0.1.0",
+  "description": "A tiny router for node:http: params, JSON bodies with limits, middleware, and errors that never leak.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test",
+    "pack:check": "npm pack --dry-run"
+  },
+  "keywords": [
+    "router",
+    "http",
+    "api",
+    "server",
+    "micro"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SandSoftwareSolutions/ss-mini-router.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SandSoftwareSolutions/ss-mini-router/issues"
+  },
+  "homepage": "https://github.com/SandSoftwareSolutions/ss-mini-router#readme",
+  "publishConfig": {
+    "access": "public"
+  }
+}
