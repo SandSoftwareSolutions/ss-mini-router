@@ -28,6 +28,13 @@ app.get("/private/data", () => ({ secret: 42 }));
 app.delete("/users/:id", ({ params }) => ({ deleted: params.id }));
 app.get("/slow-error", async () => { await new Promise((r) => setTimeout(r, 5)); throw new HttpError(409, "Conflict now"); });
 
+app.get("/twice", async (ctx) => ({ a: await ctx.text(), b: await ctx.text() }));
+app.get("/bad-status", () => { throw new HttpError(99, "odd status"); });
+app.get("/bad-header", () => { throw new HttpError(400, "bad header", { headers: { "x-a": "a\r\nb" } }); });
+app.get("/html", ({ send }) => { send(200, "<p>hi</p>", { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "max-age=5" }); });
+app.get("/:a/:b/:c", () => "three params");
+app.get("/x/*rest", ({ params }) => ({ rest: params.rest }));
+
 before(async () => {
   server = await app.listen(0);
   base = `http://127.0.0.1:${server.address().port}`;
@@ -129,4 +136,68 @@ test("bad route definitions fail when you write them", () => {
   assert.throws(() => r.get("/a", "not a function"), TypeError);
   assert.throws(() => r.use(5), TypeError);
   assert.deepEqual(r.get("/a", () => {}).routes(), ["GET /a"]);
+});
+
+// ---- review additions ----
+
+const raw = (path, { method = "GET", headers = {}, body } = {}) => new Promise((resolve, reject) => {
+  const port = server.address().port;
+  const req = request({ host: "127.0.0.1", port, path, method, headers }, (res) => {
+    let text = "";
+    res.setEncoding("utf8");
+    res.on("data", (c) => (text += c));
+    res.on("end", () => resolve({ status: res.statusCode, text }));
+  });
+  req.setTimeout(2000, () => req.destroy(new Error("no answer within 2 s")));
+  req.on("error", reject);
+  req.end(body);
+});
+
+test("an address that starts with // is not read as a host", async () => {
+  // "//evil.example/private/data" is a path, not a URL: a proxy that guards /private must see the same thing as the router
+  assert.equal((await raw("//evil.example/private/data")).status, 404);
+  assert.equal((await raw("//evil.example/private/data", { headers: { authorization: "Bearer ok" } })).status, 404);
+  assert.equal((await raw("/private/data", { headers: { authorization: "Bearer ok" } })).status, 200);
+});
+
+test("an empty path segment is not a parameter value", async () => {
+  assert.equal((await raw("/users//")).status, 404);
+  assert.equal((await raw("/users//x")).status, 404);
+  assert.equal((await raw("/users/7")).status, 200);
+});
+
+test("the body can be read more than once", async () => {
+  const r = await raw("/twice", { method: "GET", headers: { "content-length": "2" }, body: "hi" });
+  assert.deepEqual([r.status, JSON.parse(r.text)], [200, { a: "hi", b: "hi" }]);
+});
+
+test("an HttpError with an unusable status or header cannot crash the process", async () => {
+  const status = await raw("/bad-status");
+  assert.deepEqual([status.status, JSON.parse(status.text)], [500, { error: "Internal Server Error" }]);
+  const header = await raw("/bad-header");
+  assert.deepEqual([header.status, JSON.parse(header.text)], [500, { error: "Internal Server Error" }]);
+  assert.equal((await raw("/")).status, 200); // still alive
+});
+
+test("header names from the caller win whatever their case", async () => {
+  const res = await fetch(base + "/html");
+  assert.equal(res.headers.get("content-type"), "text/html; charset=utf-8");
+  assert.equal(res.headers.get("cache-control"), "max-age=5");
+  await res.text();
+});
+
+test("the first segment decides before the later ones", async () => {
+  assert.deepEqual(JSON.parse((await raw("/x/1/2")).text), { rest: "1/2" }); // /x/*rest beats /:a/:b/:c
+  assert.equal((await raw("/p/q/r")).text, "three params");
+});
+
+test("a byte order mark in front of JSON is ignored", async () => {
+  const r = await raw("/echo", { method: "POST", headers: { "content-type": "application/json" }, body: Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('{"a":1}')]) });
+  assert.deepEqual([r.status, JSON.parse(r.text)], [200, { a: 1 }]);
+});
+
+test("maxBodyBytes must be a number", () => {
+  assert.throws(() => createRouter({ maxBodyBytes: "1000" }), TypeError);
+  assert.throws(() => createRouter({ maxBodyBytes: -1 }), TypeError);
+  assert.throws(() => createRouter({ maxBodyBytes: NaN }), TypeError);
 });
