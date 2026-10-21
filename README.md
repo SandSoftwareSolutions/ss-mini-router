@@ -10,6 +10,8 @@ A small router for plain `node:http`, for little services (a licence server, a w
 npm install @sandsoftwaresolutions/mini-router
 ```
 
+Works with `import` and `require()`, and ships TypeScript types for both.
+
 ## Usage
 
 ```js
